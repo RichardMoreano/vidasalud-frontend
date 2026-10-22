@@ -1,3 +1,4 @@
+// src/pages/Login.tsx
 import { useMsal, useIsAuthenticated } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
 import { loginRequest } from "../authConfig";
