@@ -1,9 +1,8 @@
 import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { msalInstance, msalInitPromise, loginRequest } from "../authConfig";
 
-const API_BASE_URL = "http://localhost:8080";
+const API_BASE_URL = import.meta.env.VITE_API_GATEWAY_URL || "http://localhost:8080";
 
-// --- TIPOS Y DTOS ENUMERADOS DE JAVA ---
 export type EstadoAtencion = 
   | "SOLICITADA" 
   | "CONFIRMADA" 
@@ -28,10 +27,6 @@ export interface AppointmentRequest {
   boxId?: number;
 }
 
-export interface StatusUpdateRequest {
-  status: EstadoAtencion;
-}
-
 export interface Prestacion {
   id?: number;
   nombre: string;
@@ -47,23 +42,34 @@ export interface PrestacionRequest {
   cupoDisponible: number;
 }
 
-// --- OBTENER TOKEN DE AZURE ENTRA ID ---
+// --- OBTENER ACCESS TOKEN DE AZURE ENTRA ID ---
 async function getAccessToken(): Promise<string | null> {
-  // Esperar a que la inicialización global de MSAL haya terminado
   await msalInitPromise;
 
-  const account = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
-  if (!account) return null;
+  let account = msalInstance.getActiveAccount();
+  if (!account) {
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      account = accounts[0];
+      msalInstance.setActiveAccount(account);
+    }
+  }
+
+  if (!account) {
+    console.error("MSAL: No hay una cuenta activa en sesión.");
+    return null;
+  }
 
   try {
     const response = await msalInstance.acquireTokenSilent({
       ...loginRequest,
       account: account,
     });
-    return response.accessToken;
+    return response.accessToken || null;
   } catch (error) {
+    console.warn("Falló la obtención silenciosa del Access Token:", error);
     if (error instanceof InteractionRequiredAuthError) {
-      msalInstance.acquireTokenRedirect(loginRequest);
+      await msalInstance.acquireTokenRedirect(loginRequest);
     }
     return null;
   }
@@ -72,11 +78,15 @@ async function getAccessToken(): Promise<string | null> {
 // --- HELPER FETCH CON BEARER TOKEN ---
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = await getAccessToken();
-  
+
+  if (!token) {
+    throw new Error("No se pudo obtener el token de acceso. Por favor, reingresa a la aplicación.");
+  }
+
   const headers: HeadersInit = {
     "Content-Type": "application/json",
     ...(options.headers || {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    Authorization: `Bearer ${token}`,
   };
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -89,7 +99,6 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
     throw new Error(`Error ${response.status}: ${errorText || response.statusText}`);
   }
 
-  // Manejar respuestas de creación/actualización vacías o JSON
   const contentType = response.headers.get("content-type");
   if (contentType && contentType.includes("application/json")) {
     return response.json();
