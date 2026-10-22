@@ -1,8 +1,5 @@
 import axios from "axios";
-import { PublicClientApplication } from "@azure/msal-browser";
-import { msalConfig } from "../authConfig";
-
-export const msalInstance = new PublicClientApplication(msalConfig);
+import { msalInstance, loginRequest, msalInitPromise } from "../authConfig";
 
 export const bffClient = axios.create({
   baseURL: import.meta.env.VITE_API_GATEWAY_URL || "http://localhost:8080",
@@ -12,16 +9,28 @@ export const bffClient = axios.create({
 });
 
 bffClient.interceptors.request.use(async (config) => {
-  const accounts = msalInstance.getAllAccounts();
-  if (accounts.length > 0) {
+  await msalInitPromise;
+
+  let account = msalInstance.getActiveAccount();
+  if (!account) {
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      account = accounts[0];
+      msalInstance.setActiveAccount(account);
+    }
+  }
+
+  if (account) {
     try {
       const response = await msalInstance.acquireTokenSilent({
-        scopes: ["openid", "profile"],
-        account: accounts[0],
+        ...loginRequest,
+        account: account,
       });
-      config.headers.Authorization = `Bearer ${response.accessToken}`;
+      if (response.accessToken) {
+        config.headers.Authorization = `Bearer ${response.accessToken}`;
+      }
     } catch (error) {
-      console.warn("No se pudo adjuntar token dinámico:", error);
+      console.warn("No se pudo adjuntar el accessToken a bffClient:", error);
     }
   }
   return config;
