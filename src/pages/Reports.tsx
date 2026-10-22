@@ -1,3 +1,4 @@
+// src/pages/Reports.tsx
 import { BarChart3, TrendingUp, Clock, Users, Activity } from "lucide-react";
 
 export const Reports = () => {
