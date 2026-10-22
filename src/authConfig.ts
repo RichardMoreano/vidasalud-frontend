@@ -29,7 +29,7 @@ export const loginRequest: PopupRequest = {
     "openid", 
     "profile", 
     "email", 
-    `${clientId}/.default` // <-- '.default' le pide a Azure un token válido para tu Backend
+    `${clientId}/.default`
   ],
 };
 
