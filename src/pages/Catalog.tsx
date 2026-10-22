@@ -1,3 +1,4 @@
+// src/pages/Catalog.tsx
 import { useState, useEffect } from "react";
 import { api } from "../services/api";
 import type { Prestacion } from "../services/api";
