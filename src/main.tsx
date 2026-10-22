@@ -1,8 +1,10 @@
+// src/main.tsx
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { EventType } from '@azure/msal-browser';
 import { MsalProvider } from '@azure/msal-react';
 import { msalInstance, msalInitPromise } from './authConfig';
+import { NotificationProvider } from './context/NotificationContext';
 import App from './App';
 import './index.css';
 
@@ -33,7 +35,9 @@ msalInitPromise.then(() => {
       ReactDOM.createRoot(document.getElementById('root')!).render(
         <React.StrictMode>
           <MsalProvider instance={msalInstance}>
-            <App />
+            <NotificationProvider>
+              <App />
+            </NotificationProvider>
           </MsalProvider>
         </React.StrictMode>
       );
