@@ -2,7 +2,7 @@
 
 Aplicación web desarrollada con **React 18, Vite, TypeScript y Tailwind CSS** para la gestión desacoplada del ecosistema clínico VidaSalud.
 
-Implementa autenticación centralizada mediante **Azure Entra ID (MSAL)**, control de acceso basado en roles (RBAC) y un sistema de notificaciones asíncronas para eventos procesados mediante **RabbitMQ**.
+Implementa autenticación centralizada mediante **Azure Entra ID (MSAL)**, control de acceso basado en roles (RBAC), un sistema de notificaciones asíncronas para eventos procesados mediante **RabbitMQ** y vistas de administración y analítica sobre el streaming de eventos con **Apache Kafka** (EP5).
 
 ---
 
@@ -17,6 +17,7 @@ Implementa autenticación centralizada mediante **Azure Entra ID (MSAL)**, contr
 - [Roles y permisos](#-roles-y-permisos)
 - [Notificaciones y eventos asíncronos](#-notificaciones-y-eventos-asíncronos)
 - [Pruebas de errores y Dead Letter Queue](#-pruebas-de-errores-y-dead-letter-queue-dlq)
+- [Integración con Kafka (EP5)](#integración-con-kafka-ep5)
 - [Solución de problemas](#-solución-de-problemas)
 
 ---
@@ -59,7 +60,8 @@ Para el perfil Paciente:
 - Creación de solicitudes de atención.
 - Consulta del estado de las solicitudes.
 - Seguimiento de cambios de estado.
-- Cancelación de solicitudes cuando corresponda.
+- Solo ve sus propias atenciones (filtradas por su usuario de Entra ID).
+- La cancelación la realiza recepción: el backend solo permite `PUT /api/appointments/{id}/status` a los roles Admin y Operador.
 
 ### 5. Notificaciones asíncronas
 
@@ -78,7 +80,7 @@ La solución contempla pruebas de procesamiento de mensajes y manejo de errores.
 - Simulación de errores recuperables y no recuperables.
 - Reintentos de procesamiento según la configuración del consumidor.
 - Derivación de mensajes fallidos a las colas de mensajes no procesados (*Dead Letter Queues*).
-- Interfaz de gestión para inspeccionar las colas y los mensajes retenidos.
+- Vista **RabbitMQ** (rol Admin) para crear, purgar y eliminar colas, exchanges y bindings, y ver los mensajes retenidos en las DLQ.
 
 Las colas de ejemplo son:
 
@@ -101,6 +103,7 @@ Las colas de ejemplo son:
 | Cliente HTTP | Axios |
 | API de backend | API Gateway / BFF |
 | Mensajería asíncrona | RabbitMQ |
+| Streaming de eventos | Apache Kafka (vía `ms-vidasalud-kafka-admin`) |
 | Persistencia local de notificaciones | `localStorage` |
 
 ---
@@ -246,22 +249,28 @@ npm run preview
 
 Puede acceder a las funcionalidades administrativas contempladas en el proyecto:
 
-- Selector de vistas por rol, según la implementación.
-- Administración del catálogo.
-- Consulta de reportería.
-- Revisión de auditoría.
-- Gestión e inspección de colas.
+- Selector de vistas por rol en el Dashboard.
+- Administración del catálogo (crear y editar prestaciones).
+- Reportería con métricas reales y estado del pipeline Kafka.
+- Auditoría (timeline de eventos).
+- Administración de **Kafka**: tópicos, configuraciones y consumer groups.
+- Administración de **RabbitMQ**: colas, exchanges y bindings.
 
 ### Operador / Recepcionista
 
 Dispone de herramientas para gestionar el flujo de atención:
 
 - Visualizar la sala de espera.
-- Confirmar atenciones.
-- Anunciar pacientes.
-- Gestionar estados de espera.
-- Llamar pacientes a box.
-- Cancelar atenciones.
+- Confirmar atenciones, anunciarlas (EN_ESPERA), llamar a box (EN_ATENCION) y finalizarlas (CERRADA).
+- Cancelar atenciones (desde SOLICITADA, CONFIRMADA o EN_ESPERA).
+- Consultar el catálogo en modo solo lectura.
+
+El flujo sigue las transiciones que valida el backend: `SOLICITADA → CONFIRMADA → EN_ESPERA → EN_ATENCION → CERRADA` (o `CANCELADA` antes de EN_ATENCION). Una transición inválida responde 409.
+
+### Auditor (`Auditor`)
+
+- Reportería (métricas de atenciones; las métricas de Kafka requieren rol Admin).
+- Auditoría en modo solo lectura.
 
 ### Paciente (`Paciente`)
 
@@ -270,7 +279,7 @@ Puede realizar las acciones disponibles para su perfil:
 - Solicitar nuevas atenciones.
 - Consultar solicitudes.
 - Seguir cambios de estado.
-- Cancelar solicitudes cuando la lógica de negocio lo permita.
+- Ver solo sus propias atenciones.
 
 ---
 
@@ -352,6 +361,54 @@ Estos resultados dependen de que el backend reconozca los prefijos de prueba y t
 
 ---
 
+## Integración con Kafka (EP5)
+
+Kafka **complementa** a RabbitMQ: RabbitMQ sigue llevando las notificaciones (email, admisión, comprobantes) y Kafka lleva el historial de eventos de las citas para auditoría, alertas y analítica. El frontend no se conecta a los brokers: todo pasa por `JWT → API Gateway → ms-vidasalud-bff → ms-vidasalud-kafka-admin` (`/api/kafka/**`, rol Admin).
+
+```text
+appointments ──(productor, key cita-{id})──► vidasalud.citas ──► grupo vidasalud-notify (auditoría)
+                                                     │
+                                                     └──► ms-vidasalud-streams ──► vidasalud.alertas ──► grupo vidasalud-notify-alertas
+```
+
+### Módulos del frontend
+
+| Archivo | Responsabilidad |
+|---|---|
+| `src/services/kafkaApi.ts` | Cliente tipado de `/api/kafka/**` (tipos = DTO del backend) y réplica del particionador de Kafka (`murmur2(key) % particiones`). |
+| `src/services/rabbitApi.ts` | Cliente tipado de `/api/mq/**`. |
+| `src/hooks/useKafkaPipeline.ts` | Lee el tópico `vidasalud.citas` y los consumer groups `vidasalud-notify` y `vidasalud-notify-alertas`: publicados, consumidos y lag por partición. |
+| `src/pages/KafkaAdmin.tsx` | Vista **Kafka** (Admin). |
+| `src/pages/RabbitAdmin.tsx` | Vista **RabbitMQ** (Admin). |
+| `src/pages/Reports.tsx` | Reportería con datos reales + estado del streaming. |
+| `src/pages/Audit.tsx` | Timeline de auditoría con filtros (usuario, tipo de evento, fechas) y key/partición Kafka de cada cita. |
+| `src/components/ui.tsx` | Modal, banner de resultado y tarjetas reutilizables. |
+
+### Vista Kafka (rol Admin)
+
+| Acción | Endpoint |
+|---|---|
+| Estado del cluster (id, controller, brokers) | `GET /api/kafka/cluster` |
+| Listar tópicos (particiones, réplicas, internos, DLT) | `GET /api/kafka/topics` |
+| Crear tópico con particiones, réplicas, `retention.ms`, `cleanup.policy`, `min.insync.replicas` | `POST /api/kafka/topics` |
+| Detalle: líder, réplicas e ISR por partición y configuración efectiva | `GET /api/kafka/topics/{name}` |
+| Modificar configuración (solo claves permitidas por el backend) | `PUT /api/kafka/topics/{name}/config` |
+| Aumentar particiones (Kafka no permite reducirlas) | `PUT /api/kafka/topics/{name}/partitions` |
+| Eliminar tópico (los de negocio `vidasalud.*` se envían con `?force=true` tras confirmar) | `DELETE /api/kafka/topics/{name}` |
+| Listar consumer groups y su estado | `GET /api/kafka/consumer-groups` |
+| Miembros, particiones asignadas, offsets y lag | `GET /api/kafka/consumer-groups/{groupId}` |
+
+### Cómo probarlo
+
+1. Levantar Kafka (`vidasalud-backend/kafka`, `docker compose up -d`) y los microservicios con `KAFKA_ENABLED=true` (ver README del backend, sección 11 sexies).
+2. Iniciar sesión con un usuario Admin y abrir **Kafka**: deben aparecer los brokers, los tópicos `vidasalud.citas`, `vidasalud.alertas`, `vidasalud.citas-por-paciente` y sus `.DLT`, y los consumer groups.
+3. Crear una cita y moverla por sus estados desde **Atenciones**. En **Reportería** sube el contador de publicados de `vidasalud.citas` y, cuando notify los procesa, el de consumidos (lag 0).
+4. En **Auditoría**, cada cita muestra su key `cita-{id}` y la partición donde caen todos sus eventos: coincide con la columna *Partition* de Kafka UI.
+5. Cancelar 3 citas de un mismo paciente: aparece en "Pacientes con cancelaciones reiteradas" y streams publica la alerta en `vidasalud.alertas` (sube el contador en Reportería).
+6. Detener notify: el grupo pasa a `EMPTY` y el lag crece; al levantarlo, retoma desde el offset confirmado.
+
+---
+
 ## Verificación funcional
 
 Antes de considerar la instalación lista, comprueba los siguientes puntos:
@@ -366,6 +423,8 @@ Antes de considerar la instalación lista, comprueba los siguientes puntos:
 - [ ] Los cambios de estado se reflejan en la interfaz.
 - [ ] Las notificaciones aparecen según los eventos recibidos.
 - [ ] Los mensajes de prueba llegan a las DLQ esperadas cuando se producen los errores configurados.
+- [ ] La vista Kafka lista brokers, tópicos y consumer groups, y permite crear, modificar y eliminar tópicos.
+- [ ] Reportería muestra publicados / consumidos / lag de `vidasalud.citas` y `vidasalud.alertas`.
 
 ---
 
