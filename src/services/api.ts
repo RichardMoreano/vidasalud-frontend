@@ -75,8 +75,61 @@ async function getAccessToken(): Promise<string | null> {
   }
 }
 
+// --- ERROR TIPADO DE LA API ---
+// Los microservicios responden { error, mensaje, detalles } (GlobalExceptionHandler).
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly details?: Record<string, string>;
+
+  constructor(status: number, message: string, code?: string, details?: Record<string, string>) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
+const STATUS_MESSAGES: Record<number, string> = {
+  401: "Sesión expirada o token inválido. Vuelve a iniciar sesión.",
+  403: "Tu rol no tiene permisos para esta operación.",
+  404: "El recurso solicitado no existe.",
+  409: "La operación entra en conflicto con el estado actual.",
+  503: "El servicio de mensajería no está disponible en este momento.",
+};
+
+async function buildApiError(response: Response): Promise<ApiError> {
+  const raw = await response.text();
+  let message = STATUS_MESSAGES[response.status] || response.statusText || "Error inesperado";
+  let code: string | undefined;
+  let details: Record<string, string> | undefined;
+
+  if (raw) {
+    try {
+      const body = JSON.parse(raw);
+      code = body.error;
+      details = body.detalles;
+      message = body.mensaje || body.message || message;
+      if (details && Object.keys(details).length > 0) {
+        message += ": " + Object.entries(details).map(([k, v]) => `${k} ${v}`).join("; ");
+      }
+    } catch {
+      message = raw;
+    }
+  }
+  return new ApiError(response.status, message, code, details);
+}
+
+/** Mensaje legible para mostrar en la interfaz a partir de cualquier error. */
+export function errorMessage(err: unknown): string {
+  if (err instanceof ApiError) return `${err.message} (HTTP ${err.status})`;
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
 // --- HELPER FETCH CON BEARER TOKEN ---
-async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = await getAccessToken();
 
   if (!token) {
@@ -95,8 +148,7 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Error ${response.status}: ${errorText || response.statusText}`);
+    throw await buildApiError(response);
   }
 
   const contentType = response.headers.get("content-type");
