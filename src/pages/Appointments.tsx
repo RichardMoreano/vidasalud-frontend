@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useMsal } from "@azure/msal-react";
-import { api } from "../services/api";
+import { api, errorMessage } from "../services/api";
 import type { Appointment, EstadoAtencion, Prestacion } from "../services/api";
 import { CalendarCheck, Plus } from "lucide-react";
 import { useNotifications } from "../context/NotificationContext";
@@ -24,6 +24,11 @@ export const Appointments = () => {
   const isAdmin = roles.includes("Admin");
   const isOperador = roles.includes("Operador");
   const currentUserId = account?.username || "paciente-anon";
+  // Un paciente solo ve sus propias atenciones; recepción y admin ven todas.
+  const isStaff = isAdmin || isOperador;
+  const visibleAppointments = isStaff
+    ? appointments
+    : appointments.filter((a) => (a.pacienteId || "").toLowerCase() === currentUserId.toLowerCase());
 
   useEffect(() => {
     api.getServices().then(setServices).catch(console.error);
@@ -74,22 +79,23 @@ export const Appointments = () => {
       setServicioId("");
       setBoxId("");
       loadData(false);
-    } catch (err: any) {
-      alert("Error al agendar atención: " + err.message);
+    } catch (err) {
+      alert("Error al agendar atención: " + errorMessage(err));
     }
   };
 
   const handleStatusChange = async (id: number, currentStatus: EstadoAtencion, newStatus: EstadoAtencion) => {
-    if (newStatus === "EN_ATENCION" && !["CONFIRMADA", "EN_ESPERA"].includes(currentStatus)) {
-      alert("Regla de negocio: La atención debe estar 'CONFIRMADA' o 'EN_ESPERA' antes de pasar a 'EN_ATENCION'.");
+    // Misma regla que AppointmentService (TRANSICIONES_VALIDAS): se valida antes de llamar al backend.
+    if (newStatus === "EN_ATENCION" && currentStatus !== "EN_ESPERA") {
+      alert("Regla de negocio: la atención debe estar CONFIRMADA y anunciada (EN_ESPERA) antes de pasar a EN_ATENCION.");
       return;
     }
 
     try {
       await api.updateAppointmentStatus(id, newStatus);
       loadData(false);
-    } catch (err: any) {
-      alert("Error al cambiar estado: " + err.message);
+    } catch (err) {
+      alert("Error al cambiar estado: " + errorMessage(err));
     }
   };
 
@@ -134,7 +140,7 @@ export const Appointments = () => {
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-xs text-slate-400">Cargando atenciones...</div>
-        ) : appointments.length === 0 ? (
+        ) : visibleAppointments.length === 0 ? (
           <div className="p-8 text-center text-xs text-slate-400">No se encontraron atenciones registradas.</div>
         ) : (
           <table className="w-full text-left border-collapse">
@@ -148,7 +154,7 @@ export const Appointments = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
-              {appointments.map((app) => (
+              {visibleAppointments.map((app) => (
                 <tr key={app.id} className="hover:bg-slate-50/50 transition">
                   <td className="p-4">
                     <span className="font-mono text-slate-400">#{app.id}</span>
@@ -183,14 +189,8 @@ export const Appointments = () => {
                     </span>
                   </td>
                   <td className="p-4 text-right space-x-1">
-                    {!isAdmin && !isOperador && app.estado !== "CERRADA" && app.estado !== "CANCELADA" && (
-                      <button
-                        type="button"
-                        onClick={() => handleStatusChange(app.id!, app.estado, "CANCELADA")}
-                        className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 font-semibold text-[11px]"
-                      >
-                        Cancelar
-                      </button>
+                    {!isStaff && app.estado !== "CERRADA" && app.estado !== "CANCELADA" && (
+                      <span className="text-[11px] text-slate-400">Para cancelar, contacta a recepción</span>
                     )}
 
                     {(isOperador || isAdmin) && (
@@ -213,7 +213,7 @@ export const Appointments = () => {
                             Anunciar
                           </button>
                         )}
-                        {(app.estado === "CONFIRMADA" || app.estado === "EN_ESPERA") && (
+                        {app.estado === "EN_ESPERA" && (
                           <button
                             type="button"
                             onClick={() => handleStatusChange(app.id!, app.estado, "EN_ATENCION")}
@@ -231,7 +231,7 @@ export const Appointments = () => {
                             Finalizar
                           </button>
                         )}
-                        {app.estado !== "CERRADA" && app.estado !== "CANCELADA" && (
+                        {["SOLICITADA", "CONFIRMADA", "EN_ESPERA"].includes(app.estado) && (
                           <button
                             type="button"
                             onClick={() => handleStatusChange(app.id!, app.estado, "CANCELADA")}
