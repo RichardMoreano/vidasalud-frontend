@@ -7,6 +7,8 @@ import { Appointments } from "./pages/Appointments";
 import { Catalog } from "./pages/Catalog";
 import { Reports } from "./pages/Reports";
 import { Audit } from "./pages/Audit";
+import { KafkaAdmin } from "./pages/KafkaAdmin";
+import { RabbitAdmin } from "./pages/RabbitAdmin";
 import { Navbar, type ViewType } from "./components/Navbar";
 
 export default function App() {
@@ -27,6 +29,8 @@ export default function App() {
         {currentView === "catalog" && <Catalog />}
         {currentView === "reports" && <Reports />}
         {currentView === "audit" && <Audit />}
+        {currentView === "kafka" && <KafkaAdmin />}
+        {currentView === "rabbit" && <RabbitAdmin />}
       </main>
     </div>
   );

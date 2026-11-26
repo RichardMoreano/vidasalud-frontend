@@ -7,7 +7,7 @@ import {
   BarChart3, 
   ShieldCheck, 
   Cpu, 
-  LogOut, 
+  Inbox,
   HeartPulse, 
   Bell, 
   Check, 
@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { useNotifications } from "../context/NotificationContext";
 
-export type ViewType = "dashboard" | "appointments" | "catalog" | "reports" | "audit" ;
+export type ViewType = "dashboard" | "appointments" | "catalog" | "reports" | "audit" | "kafka" | "rabbit";
 
 interface NavbarProps {
   currentView: ViewType;
@@ -24,7 +24,7 @@ interface NavbarProps {
 }
 
 export const Navbar = ({ currentView, setCurrentView }: NavbarProps) => {
-  const { instance, accounts } = useMsal();
+  const { accounts } = useMsal();
   const { notifications, unreadCount, markAsRead, clearAll, activeToast, closeToast } = useNotifications();
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -34,16 +34,14 @@ export const Navbar = ({ currentView, setCurrentView }: NavbarProps) => {
   const isOperador = roles.includes("Operador");
   const isAuditor = roles.includes("Auditor");
 
-  const handleLogout = () => {
-    instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin }).catch((e) => console.error(e));
-  };
-
   const allNavItems = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, visible: true },
     { id: "appointments", label: "Atenciones", icon: Calendar, visible: true },
-    { id: "catalog", label: "Catálogo", icon: BookOpen, visible: isAdmin },
+    { id: "catalog", label: "Catálogo", icon: BookOpen, visible: isAdmin || isOperador },
     { id: "reports", label: "Reportería", icon: BarChart3, visible: isAdmin || isAuditor },
     { id: "audit", label: "Auditoría", icon: ShieldCheck, visible: isAdmin || isAuditor },
+    { id: "kafka", label: "Kafka", icon: Cpu, visible: isAdmin },
+    { id: "rabbit", label: "RabbitMQ", icon: Inbox, visible: isAdmin },
   ] as const;
 
   const visibleNavItems = allNavItems.filter((item) => item.visible);
