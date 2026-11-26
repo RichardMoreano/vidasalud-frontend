@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMsal } from "@azure/msal-react";
 import { 
-  Users, 
   CalendarCheck, 
   Activity, 
   Clock, 
@@ -16,7 +15,7 @@ import {
   CheckCircle2
 } from "lucide-react";
 
-import { api } from "../services/api";
+import { api, errorMessage } from "../services/api";
 import type { Appointment, Prestacion, EstadoAtencion } from "../services/api";
 
 type RoleView = "ADMIN" | "RECEPCIONISTA" | "PACIENTE";
@@ -58,7 +57,7 @@ export const Dashboard = () => {
       ]);
       setAppointments(appointmentsData || []);
       setServices(servicesData || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error al cargar datos del microservicio:", err);
       if (!isSilent) setError("No se pudieron obtener los datos actualizados del microservicio.");
     } finally {
@@ -81,7 +80,8 @@ export const Dashboard = () => {
         prev.map((app) => (app.id === id ? { ...app, estado: newStatus } : app))
       );
     } catch (err) {
-      alert("Error al actualizar el estado de la atención.");
+      alert("Error al actualizar el estado de la atención: " + errorMessage(err));
+      fetchDashboardData(true);
     }
   };
 
@@ -271,7 +271,7 @@ export const Dashboard = () => {
                             Anunciar
                           </button>
                         )}
-                        {app.id && (app.estado === "CONFIRMADA" || app.estado === "EN_ESPERA") && (
+                        {app.id && app.estado === "EN_ESPERA" && (
                           <button
                             type="button"
                             onClick={() => handleUpdateStatus(app.id!, "EN_ATENCION")}
@@ -280,7 +280,16 @@ export const Dashboard = () => {
                             Llamar a Box
                           </button>
                         )}
-                        {app.id && app.estado !== "CERRADA" && app.estado !== "CANCELADA" && (
+                        {app.id && app.estado === "EN_ATENCION" && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateStatus(app.id!, "CERRADA")}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-900 text-white rounded-lg font-bold transition"
+                          >
+                            Finalizar
+                          </button>
+                        )}
+                        {app.id && ["SOLICITADA", "CONFIRMADA", "EN_ESPERA"].includes(app.estado) && (
                           <button
                             type="button"
                             onClick={() => handleUpdateStatus(app.id!, "CANCELADA")}
