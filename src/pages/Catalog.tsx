@@ -1,10 +1,15 @@
 // src/pages/Catalog.tsx
 import { useState, useEffect } from "react";
-import { api } from "../services/api";
+import { useMsal } from "@azure/msal-react";
+import { api, errorMessage } from "../services/api";
 import type { Prestacion } from "../services/api";
-import { Stethoscope, Plus, Edit2, Box, DollarSign, Layers } from "lucide-react";
+import { Stethoscope, Plus, Edit2, Box, Layers } from "lucide-react";
 
 export const Catalog = () => {
+  const { accounts } = useMsal();
+  const roles = (accounts[0]?.idTokenClaims?.roles as string[]) || [];
+  // Crear/editar prestaciones es exclusivo de Admin (BFF: POST/PUT /api/catalog/** -> ROLE_Admin).
+  const canEdit = roles.includes("Admin");
   const [services, setServices] = useState<Prestacion[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -66,7 +71,7 @@ export const Catalog = () => {
       setShowModal(false);
       loadCatalog();
     } catch (err: any) {
-      alert("Error al guardar prestación: " + err.message);
+      alert("Error al guardar prestación: " + errorMessage(err));
     }
   };
 
@@ -80,12 +85,19 @@ export const Catalog = () => {
           <p className="text-xs text-slate-500 mt-1">Configuración de aranceles y disponibilidad de recintos médicos</p>
         </div>
 
+        {canEdit ? (
         <button
+          type="button"
           onClick={() => handleOpenModal()}
           className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl text-xs font-semibold transition shadow-md"
         >
           <Plus className="w-4 h-4" /> Nueva Prestación
         </button>
+        ) : (
+          <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold border border-slate-200">
+            Solo Lectura
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -101,12 +113,15 @@ export const Catalog = () => {
                   <span className="p-2.5 rounded-xl bg-blue-50 text-blue-600 font-bold text-xs">
                     <Box className="w-4 h-4 inline mr-1" /> Box #{item.boxId}
                   </span>
+                  {canEdit && (
                   <button 
+                    type="button"
                     onClick={() => handleOpenModal(item)}
                     className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
                   >
                     <Edit2 className="w-4 h-4" />
                   </button>
+                  )}
                 </div>
 
                 <h3 className="text-base font-bold text-slate-900 mb-1">{item.nombre}</h3>
